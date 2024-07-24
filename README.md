@@ -11,7 +11,7 @@
 
 ## API da realizzare
 
-### API di autenticazione:
+### API di autenticazione
 
 - POST /api/auth/register: Permette agli utenti generici di registrarsi fornendo le informazioni necessarie come nome, email e password.
 - POST /api/auth/admin/register: Permette agli utenti admin di registrarsi fornendo le informazioni necessarie come nome, email e password. Implementare un controllo dell’email a fronte di una whitelist di indirizzi email abilitabili all’accesso come Admin.
@@ -19,7 +19,7 @@
 - GET /api/auth/logout: Permette agli utenti di disconnettersi.
 - GET /api/auth/user: Restituisce le informazioni dell'utente attualmente autenticato (generico o Admin).
 
-### API per la gestione dei prodotti:
+### API per la gestione dei prodotti
 
 - GET /api/products: Restituisce l'elenco completo dei prodotti disponibili nel catalogo.
 - Opzionale: implementare un sistema di paginazione per migliorare le performance dell’API

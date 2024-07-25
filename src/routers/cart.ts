@@ -1,93 +1,90 @@
-// import express, { Request, Response } from "express";
-// import { handleErr } from "../utils/handleError";
-// import { pool } from "../config/database";
-// import "dotenv/config";
-// import { verifyToken } from "../utils/token";
+import express, { Request, Response } from "express";
+import { handleErr } from "../utils/handleError";
+import { pool } from "../config/database";
+import "dotenv/config";
+import { authenticateJWT, CustomRequest } from "../middleware/authenticateJWT";
+import { addProductToCart, getCart, getProductsFromCart, removeProductFromCart, clearCart } from "../controllers/cartController";
 
-// export const routerCart = express.Router();
+export const routerCart = express.Router();
 
-// // *🔒 User cart
-// routerCart.get("", async (req: Request, res: Response) => {
-//   const token = req.headers.authorization;
-//   if (!token) return res.status(401).json({ error: "Missing Token" });
+// *🔒 User cart
+routerCart.get("", authenticateJWT, async (req: CustomRequest, res: Response) => {
+  const user = req.user as { id: string };
+  let db;
+  try {
+    db = await pool.connect();
 
-//   try {
-//     const db = await pool.connect();
-//     const decode = verifyToken(token);
-//     const queryCart = `SELECT * FROM cart WHERE userid = $1`;
-//     const valuesCart = [decode?.id];
-//     const resultCart = await db.query(queryCart, valuesCart);
-//     db.release();
-//     return res.status(200).json(resultCart.rows[0]);
-//   } catch (error) {
-//     handleErr(res, 500, error);
-//   }
-// });
+    const resultCart = await getCart(db, Number(user.id));
 
-// // *🔒 Add product to cart
-// routerCart.post("/add/:id", async (req: Request, res: Response) => {
-//   const productId = req.params.id;
-//   const token = req.headers.authorization;
-//   if (!token) return res.status(401).json({ error: "Missing Token" });
+    const products = await getProductsFromCart(db, resultCart.productids);
 
-//   try {
-//     const db = await pool.connect();
-//     const decode = verifyToken(token);
+    return res.status(200).json(products);
+  } catch (error) {
+    handleErr(res, 500, error);
+  } finally {
+    db?.release();
+  }
+});
 
-//     const queryCart = `SELECT * FROM cart WHERE userid = $1`;
-//     const valuesCart = [decode?.id];
-//     const resultCart = await db.query(queryCart, valuesCart);
-//     const idCart = resultCart.rows[0].id;
+// *🔒 Add product to cart
+routerCart.post("/add/:id", authenticateJWT, async (req: CustomRequest, res: Response) => {
+  const productId = req.params.id;
+  let db;
+  const user = req.user as { id: string };
 
-//     const queryUser = `UPDATE cart SET productids = array_append(productids, $1) WHERE id = $2 AND userid = $3`;
-//     const valuesUser = [Number(productId), idCart, decode?.id];
-//     await db.query(queryUser, valuesUser);
+  try {
+    db = await pool.connect();
 
-//     db.release();
-//     return res.status(200).json({ message: "Product added to cart" });
-//   } catch (error) {
-//     handleErr(res, 500, error);
-//   }
-// });
+    const resultCart = await getCart(db, Number(user.id));
+    console.log(resultCart.id);
+    const idCart = resultCart.id;
 
-// // *🔒 Remove product from cart
-// routerCart.delete("/remove/:id", async (req: Request, res: Response) => {
-//   const productId = req.params.id;
-//   const token = req.headers.authorization;
-//   if (!token) return res.status(401).json({ error: "Missing Token" });
+    addProductToCart(db, idCart, Number(productId));
 
-//   try {
-//     const db = await pool.connect();
-//     const decode = verifyToken(token);
-//     const queryCart = `SELECT * FROM cart WHERE userid = $1`;
-//     const valuesCart = [decode?.id];
-//     const resultCart = await db.query(queryCart, valuesCart);
-//     const idCart = resultCart.rows[0].id;
+    return res.status(200).json({ message: "Product added to cart" });
+  } catch (error) {
+    handleErr(res, 500, error);
+  } finally {
+    db?.release();
+  }
+});
 
-//     const queryUser = `UPDATE cart SET productids = array_remove(productids, $1) WHERE id = $2 AND userid = $3;`;
-//     const valuesUser = [productId, idCart, decode?.id];
-//     db.query(queryUser, valuesUser);
-//     db.release();
-//     return res.status(200).json({ message: "Product removed from cart" });
-//   } catch (error) {
-//     handleErr(res, 500, error);
-//   }
-// });
+// *🔒 Remove product from cart
+routerCart.delete("/remove/:id", authenticateJWT, async (req: CustomRequest, res: Response) => {
+  const productId = req.params.id;
+  let db;
+  const user = req.user as { id: string };
 
-// // *🔒 Clear user cart
-// routerCart.delete("/clear", async (req: Request, res: Response) => {
-//   const token = req.headers.authorization;
-//   if (!token) return res.status(401).json({ error: "Missing Token" });
+  try {
+    db = await pool.connect();
 
-//   try {
-//     const db = await pool.connect();
-//     const decode = verifyToken(token);
-//     const queryCart = `UPDATE cart SET productids = '{}' WHERE userid = $1`;
-//     const valuesCart = [decode?.id];
-//     db.query(queryCart, valuesCart);
-//     db.release();
-//     return res.status(200).json({ message: "Cart cleared" });
-//   } catch (error) {
-//     handleErr(res, 500, error);
-//   }
-// });
+    const resultCart = await getCart(db, Number(user.id));
+    const idCart = resultCart.id;
+
+    removeProductFromCart(db, idCart, Number(productId));
+
+    return res.status(200).json({ message: "Product removed from cart" });
+  } catch (error) {
+    handleErr(res, 500, error);
+  } finally {
+    db?.release();
+  }
+});
+
+// *🔒 Clear user cart
+routerCart.delete("/clear", authenticateJWT, async (req: CustomRequest, res: Response) => {
+  let db;
+  const user = req.user as { id: string };
+
+  try {
+    const db = await pool.connect();
+
+    const resultCart = await getCart(db, Number(user.id));
+    const idCart = resultCart.id;
+
+    const emptyCart = await clearCart(db, idCart);
+    return res.status(200).json({ message: "Cart cleared" });
+  } catch (error) {
+    handleErr(res, 500, error);
+  }
+});

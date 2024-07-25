@@ -1,5 +1,5 @@
-import express, { Request, Response, NextFunction } from "express";
-import { JwtPayload, sign, verify } from "jsonwebtoken";
+import { Request, Response, NextFunction } from "express";
+import { JwtPayload, verify } from "jsonwebtoken";
 import "dotenv/config";
 
 export interface CustomRequest extends Request {

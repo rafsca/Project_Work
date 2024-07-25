@@ -1,8 +1,4 @@
-import { handleErr } from "../utils/handleError";
-import { pool } from "../config/database";
 import { compare, hashSync } from "bcryptjs";
-import { isEmailWhitelisted } from "../utils/whitelist";
-import { authenticateJWT, CustomRequest } from "../middleware/authenticateJWT";
 import "dotenv/config";
 import { sign } from "jsonwebtoken";
 

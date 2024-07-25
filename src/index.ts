@@ -1,8 +1,7 @@
 import express, { Request, Response } from "express";
-import { handleErr } from "./utils/handleError";
 import { routerUser } from "./routers/users";
 import { routerCart } from "./routers/cart";
-import { sign, verify } from "jsonwebtoken";
+import { routerProducts } from "./routers/products";
 
 const app = express();
 const server = express.json();
@@ -15,7 +14,7 @@ app.use(server);
 app.get("/", async function (req: Request, res: Response) {});
 
 app.use("/api/auth", routerUser);
-// app.use("/api/products", routerProducts);
+app.use("/api/products", routerProducts);
 app.use("/api/cart", routerCart);
 
 app.listen(port, function () {

@@ -1,6 +1,3 @@
-import { handleErr } from "../utils/handleError";
-import { pool } from "../config/database";
-
 export const getCart = async (db: any, userid: number) => {
   const queryCart = `SELECT * FROM cart WHERE userid = $1`;
   const valuesCart = [userid];

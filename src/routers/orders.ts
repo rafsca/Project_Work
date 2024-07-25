@@ -3,28 +3,36 @@ import { handleErr } from "../utils/handleError";
 import { pool } from "../config/database";
 import "dotenv/config";
 import { parse } from "dotenv";
+import { authenticateJWT, CustomRequest } from "../middleware/authenticateJWT";
+import { verify, sign } from "jsonwebtoken";
+import { verifyToken } from "../utils/token";
 
 export const routerOrders = express.Router();
 
-routerOrders.get("/:id", async (req: Request, res: Response) => {
-  const token = req.headers.authorization;
-  if (!token) return res.status(401).json({ error: "Missing Token" });
-  const idUser = req.params.id;
+//Restituisce lo storico degli ordini dell'utente
+routerOrders.get(
+  "/:id",
+  authenticateJWT,
+  async (req: CustomRequest, res: Response) => {
+    const user = req.user as { id: number; role: string };
+    const idUser = req.params.id;
 
-  try {
-    const query = "SELECT * FROM orders WHERE userid = $1";
-    const { rows } = await pool.query(query, [idUser]);
+    try {
+      const db = await pool.connect();
 
-    if (rows.length === 0) {
-      return res.status(404).json({ message: "Order not found" });
+      const queryOrder = "SELECT * FROM orders WHERE userid = $1";
+      const valuesOrder = [user];
+      await db.query(queryOrder, [user]);
+
+      db.release();
+      return res.status(201).json({ message: "Product successfully returned" });
+    } catch (error) {
+      handleErr(res, 500, error);
     }
-
-    res.status(200).json(rows[0]);
-  } catch (error) {
-    handleErr(res, 500, error);
   }
-});
+);
 
+//sistema di paginazione per migliorare le performance dell’API.
 routerOrders.get("/api/items", async (req: Request, res: Response) => {
   const token = req.headers.authorization;
   if (!token) return res.status(401).json({ error: "Missing Token" });
@@ -57,7 +65,8 @@ routerOrders.get("/api/items", async (req: Request, res: Response) => {
   }
 });
 
-routerOrders.post("/", async (req: Request, res: Response) => {
+//Permette agli utenti di creare un nuovo ordine partendo dai prodotti presenti nel carrello, con l’aggiunta dei dati di spedizione.
+routerOrders.post("/", authenticateJWT, async (req: Request, res: Response) => {
   const token = req.headers.authorization;
   if (!token) return res.status(401).json({ error: "Missing Token" });
 
@@ -74,9 +83,10 @@ routerOrders.post("/", async (req: Request, res: Response) => {
   } = req.body;
 
   try {
-    await pool.query("BEGIN");
+    const db = await pool.connect();
+
     const orderQuery = `INSERT INTO orders (user_id, first_name, last_name, address, postal_code, city, region, country) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`;
-    const result = await pool.query(orderQuery, [
+    const valuesOrder = [
       userid,
       firstname,
       lastname,
@@ -85,123 +95,94 @@ routerOrders.post("/", async (req: Request, res: Response) => {
       city,
       region,
       country,
-    ]);
-    const orderId = result.rows[0].id;
+    ];
+    await db.query(orderQuery, valuesOrder);
+    db.release();
 
-    const itemQuery = `INSERT INTO order_items (order_id, product_id, quantity, price)VALUES ($1, $2, $3, $4)`;
-    for (const item of items) {
-      await pool.query(itemQuery, [
-        orderId,
-        item.productId,
-        item.quantity,
-        item.price,
-      ]);
-    }
-
-    await pool.query("COMMIT");
-
-    res.status(201).json({ message: "Order created successfully", orderId });
+    res.status(201).json({ message: "Order created successfully" });
   } catch (error) {
-    await pool.query("ROLLBACK");
     handleErr(res, 500, error);
   }
 });
 
+//Restituisce i dettagli di un singolo ordine identificato dal suo ID.
 routerOrders.get("/:id", async (req: Request, res: Response) => {
-  const token = req.headers.authorization;
-  if (!token) return res.status(401).json({ error: "Missing Token" });
-  const orderId = parseInt(req.params.id);
+  const orderId = req.params.id;
 
   try {
-    const query = `SELECT
-        o.id AS order_id,
-        o.user_id,
-        o.first_name,
-        o.last_name,
-        o.address,
-        o.postal_code,
-        o.city,
-        o.region,
-        o.country,
-        o.created_at,
-        json_agg(
-            json_build_object(
-                'item_id', oi.id,
-                'product_id', oi.product_id,
-                'quantity', oi.quantity,
-                'price', oi.price
-            )
-        ) AS items
-    FROM
-        orders o
-    JOIN
-        order_items oi ON o.id = oi.order_id
-    WHERE
-        o.id = $1
-    GROUP BY
-        o.id;`;
+    const db = await pool.connect();
 
-    const result = await pool.query(query, [orderId]);
+    const queryOrder = "SELECT * FROM products WHERE id=$1";
+    const valuesOrder = [orderId];
+    const resultOrder = await db.query(queryOrder, valuesOrder);
+    console.log(resultOrder.rows[0]);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Order not found" });
-    }
+    const { title, price, category, description } = resultOrder.rows[0];
+    if (resultOrder.rows[0].length === 0)
+      return res.status(404).json({ message: "Not found" });
 
-    res.status(200).json(result.rows[0]);
+    db.release();
+    return res.status(201).json({ title, price, category, description });
   } catch (error) {
     handleErr(res, 500, error);
   }
 });
 
-routerOrders.put("/:id", async (req: Request, res: Response) => {
-  const token = req.headers.authorization;
-  if (!token) return res.status(401).json({ error: "Missing Token" });
-  const orderId = parseInt(req.params.id);
-  const { status } = req.body;
+//Consente agli amministratori di aggiornare lo stato di un ordine esistente.
+routerOrders.put(
+  "/:id",
+  authenticateJWT,
+  async (req: CustomRequest, res: Response) => {
+    const user = req.user as { id: number; role: string };
+    const { id, role } = user;
+    const orderId = req.params.id;
+    const { status } = req.body;
 
-  if (!status) {
-    return res.status(400).json({ message: "Status is required" });
-  }
-
-  try {
-    const query = `UPDATE orders
+    try {
+      const db = await pool.connect();
+      if (role !== "admin")
+        return res.status(401).json({ error: "You have to be admin" });
+      const queryOrder = `UPDATE orders
         SET status = $1
         WHERE id = $2
         RETURNING *;`;
 
-    const result = await pool.query(query, [status, orderId]);
+      const valuesOrder = [status, orderId];
+      await db.query(queryOrder, valuesOrder);
+      db.release();
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "order not found" });
+      return res.status(201).json({ message: "updated order" });
+    } catch (error) {
+      handleErr(res, 500, error);
     }
-
-    res.status(200).json(result.rows[0]);
-  } catch (error) {
-    handleErr(res, 500, error);
   }
-});
+);
 
-routerOrders.delete("/:id", async (req: Request, res: Response) => {
-  const token = req.headers.authorization;
-  if (!token) return res.status(401).json({ error: "Missing Token" });
-  const orderId = parseInt(req.params.id);
+//Permette agli amministratori di cancellare un ordine.
+routerOrders.delete(
+  "/:id",
+  authenticateJWT,
+  async (req: CustomRequest, res: Response) => {
+    const user = req.user as { id: number; role: string };
+    const { id, role } = user;
+    const orderId = req.params.id;
 
-  try {
-    const query = `DELETE FROM orders
-        WHERE id = $1
-        RETURNING *;`;
+    try {
+      const db = await pool.connect();
+      if (role !== "admin")
+        return res.status(401).json({ error: "You have to be admin" });
+      const queryOrder = `
+          DELETE FROM orders
+            WHERE id = $1
+    ;`;
 
-    const result = await pool.query(query, [orderId]);
+      const valuesOrder = [orderId];
+      await db.query(queryOrder, valuesOrder);
+      db.release();
 
-    if (result.rowCount === 0) {
-      return res.status(404).json({ message: "Order not found" });
+      return res.status(201).json({ message: "orde deleted" });
+    } catch (error) {
+      handleErr(res, 500, error);
     }
-
-    res.status(200).json({
-      message: "Order deleted successfully",
-      deletedOrder: result.rows[0],
-    });
-  } catch (error) {
-    handleErr(res, 500, error);
   }
-});
+);

@@ -1,8 +1,6 @@
 import express, { Request, Response } from "express";
-import { handleErr } from "./utils/handleError";
 import { routerUser } from "./routers/users";
 import { routerProducts } from "./routers/products";
-import { sign, verify } from "jsonwebtoken";
 import { routerCart } from "./routers/cart";
 import { routerOrders } from "./routers/orders";
 
@@ -24,3 +22,4 @@ app.use("/api/orders", routerOrders);
 app.listen(port, function () {
   console.log(`🚀 Server is running on ${baseURL}:${port}`);
 });
+

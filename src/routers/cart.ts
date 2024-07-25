@@ -2,90 +2,87 @@ import express, { Request, Response } from "express";
 import { handleErr } from "../utils/handleError";
 import { pool } from "../config/database";
 import "dotenv/config";
-import { verifyToken } from "../utils/token";
+import { authenticateJWT, CustomRequest } from "../middleware/authenticateJWT";
+import { addProductToCart, getCart, getProductsFromCart, removeProductFromCart, clearCart } from "../controllers/cartController";
 
 export const routerCart = express.Router();
 
 // *🔒 User cart
-routerCart.get("", async (req: Request, res: Response) => {
-  const token = req.headers.authorization;
-  if (!token) return res.status(401).json({ error: "Missing Token" });
-
+routerCart.get("", authenticateJWT, async (req: CustomRequest, res: Response) => {
+  const user = req.user as { id: string };
+  let db;
   try {
-    const db = await pool.connect();
-    const decode = verifyToken(token);
-    const queryCart = `SELECT * FROM cart WHERE userid = $1`;
-    const valuesCart = [decode?.id];
-    const resultCart = await db.query(queryCart, valuesCart);
-    db.release();
-    return res.status(200).json(resultCart.rows[0]);
+    db = await pool.connect();
+
+    const resultCart = await getCart(db, Number(user.id));
+
+    const products = await getProductsFromCart(db, resultCart.productids);
+
+    return res.status(200).json(products);
   } catch (error) {
     handleErr(res, 500, error);
+  } finally {
+    db?.release();
   }
 });
 
 // *🔒 Add product to cart
-routerCart.post("/add/:id", async (req: Request, res: Response) => {
+routerCart.post("/add/:id", authenticateJWT, async (req: CustomRequest, res: Response) => {
   const productId = req.params.id;
-  const token = req.headers.authorization;
-  if (!token) return res.status(401).json({ error: "Missing Token" });
+  let db;
+  const user = req.user as { id: string };
 
   try {
-    const db = await pool.connect();
-    const decode = verifyToken(token);
+    db = await pool.connect();
 
-    const queryCart = `SELECT * FROM cart WHERE userid = $1`;
-    const valuesCart = [decode?.id];
-    const resultCart = await db.query(queryCart, valuesCart);
-    const idCart = resultCart.rows[0].id;
+    const resultCart = await getCart(db, Number(user.id));
+    console.log(resultCart.id);
+    const idCart = resultCart.id;
 
-    const queryUser = `UPDATE cart SET productids = array_append(productids, $1) WHERE id = $2 AND userid = $3`;
-    const valuesUser = [Number(productId), idCart, decode?.id];
-    await db.query(queryUser, valuesUser);
+    addProductToCart(db, idCart, Number(productId));
 
-    db.release();
     return res.status(200).json({ message: "Product added to cart" });
   } catch (error) {
     handleErr(res, 500, error);
+  } finally {
+    db?.release();
   }
 });
 
 // *🔒 Remove product from cart
-routerCart.delete("/remove/:id", async (req: Request, res: Response) => {
+routerCart.delete("/remove/:id", authenticateJWT, async (req: CustomRequest, res: Response) => {
   const productId = req.params.id;
-  const token = req.headers.authorization;
-  if (!token) return res.status(401).json({ error: "Missing Token" });
+  let db;
+  const user = req.user as { id: string };
 
   try {
-    const db = await pool.connect();
-    const decode = verifyToken(token);
-    const queryCart = `SELECT * FROM cart WHERE userid = $1`;
-    const valuesCart = [decode?.id];
-    const resultCart = await db.query(queryCart, valuesCart);
-    const idCart = resultCart.rows[0].id;
+    db = await pool.connect();
 
-    const queryUser = `UPDATE cart SET productids = array_remove(productids, $1) WHERE id = $2 AND userid = $3;`;
-    const valuesUser = [productId, idCart, decode?.id];
-    db.query(queryUser, valuesUser);
-    db.release();
+    const resultCart = await getCart(db, Number(user.id));
+    const idCart = resultCart.id;
+
+    removeProductFromCart(db, idCart, Number(productId));
+
     return res.status(200).json({ message: "Product removed from cart" });
   } catch (error) {
     handleErr(res, 500, error);
+  } finally {
+    db?.release();
   }
 });
 
 // *🔒 Clear user cart
-routerCart.delete("/clear", async (req: Request, res: Response) => {
-  const token = req.headers.authorization;
-  if (!token) return res.status(401).json({ error: "Missing Token" });
+routerCart.delete("/clear", authenticateJWT, async (req: CustomRequest, res: Response) => {
+  let db;
+  const user = req.user as { id: string };
 
   try {
     const db = await pool.connect();
-    const decode = verifyToken(token);
-    const queryCart = `UPDATE cart SET productids = '{}' WHERE userid = $1`;
-    const valuesCart = [decode?.id];
-    db.query(queryCart, valuesCart);
-    db.release();
+
+    const resultCart = await getCart(db, Number(user.id));
+    const idCart = resultCart.id;
+
+    const emptyCart = await clearCart(db, idCart);
     return res.status(200).json({ message: "Cart cleared" });
   } catch (error) {
     handleErr(res, 500, error);

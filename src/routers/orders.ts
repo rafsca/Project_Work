@@ -4,10 +4,13 @@ import { pool } from "../config/database";
 import "dotenv/config";
 import { parse } from "dotenv";
 
-const routerOrders = express.Router();
+export const routerOrders = express.Router();
 
 routerOrders.get("/:id", async (req: Request, res: Response) => {
+  const token = req.headers.authorization;
+  if (!token) return res.status(401).json({ error: "Missing Token" });
   const idUser = req.params.id;
+
   try {
     const query = "SELECT * FROM orders WHERE userid = $1";
     const { rows } = await pool.query(query, [idUser]);
@@ -22,7 +25,42 @@ routerOrders.get("/:id", async (req: Request, res: Response) => {
   }
 });
 
+routerOrders.get("/api/items", async (req: Request, res: Response) => {
+  const token = req.headers.authorization;
+  if (!token) return res.status(401).json({ error: "Missing Token" });
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const offset = (page - 1) * limit;
+
+    const result = await pool.query("SELECT * FROM items LIMIT ? OFFSET ?", [
+      limit,
+      offset,
+    ]);
+    const rows = result.rows;
+    const {
+      rows: [{ total_count }],
+    } = await pool.query("SELECT COUNT(*) as total_count FROM items");
+    const totalPages = Math.ceil(total_count / limit);
+
+    res.json({
+      data: rows,
+      pagination: {
+        current_page: page,
+        total_pages: totalPages,
+        total_count: total_count,
+        per_page: limit,
+      },
+    });
+  } catch (error) {
+    handleErr(res, 500, error);
+  }
+});
+
 routerOrders.post("/", async (req: Request, res: Response) => {
+  const token = req.headers.authorization;
+  if (!token) return res.status(401).json({ error: "Missing Token" });
+
   const {
     userid,
     firstname,
@@ -70,6 +108,8 @@ routerOrders.post("/", async (req: Request, res: Response) => {
 });
 
 routerOrders.get("/:id", async (req: Request, res: Response) => {
+  const token = req.headers.authorization;
+  if (!token) return res.status(401).json({ error: "Missing Token" });
   const orderId = parseInt(req.params.id);
 
   try {
@@ -114,6 +154,8 @@ routerOrders.get("/:id", async (req: Request, res: Response) => {
 });
 
 routerOrders.put("/:id", async (req: Request, res: Response) => {
+  const token = req.headers.authorization;
+  if (!token) return res.status(401).json({ error: "Missing Token" });
   const orderId = parseInt(req.params.id);
   const { status } = req.body;
 
@@ -140,6 +182,8 @@ routerOrders.put("/:id", async (req: Request, res: Response) => {
 });
 
 routerOrders.delete("/:id", async (req: Request, res: Response) => {
+  const token = req.headers.authorization;
+  if (!token) return res.status(401).json({ error: "Missing Token" });
   const orderId = parseInt(req.params.id);
 
   try {
@@ -153,15 +197,11 @@ routerOrders.delete("/:id", async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    res
-      .status(200)
-      .json({
-        message: "Order deleted successfully",
-        deletedOrder: result.rows[0],
-      });
+    res.status(200).json({
+      message: "Order deleted successfully",
+      deletedOrder: result.rows[0],
+    });
   } catch (error) {
     handleErr(res, 500, error);
   }
 });
-
-export default routerOrders;

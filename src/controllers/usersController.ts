@@ -1,72 +1,77 @@
+import { VercelPoolClient } from "@vercel/postgres";
 import { compare, hashSync } from "bcryptjs";
+import { DatabaseError, AuthError } from "../utils/handleError";
 import "dotenv/config";
-import { sign } from "jsonwebtoken";
 
-export const createUser = async (db: any, name: string, email: string, password: string) => {
-  const hashPassword = hashSync(password, 10);
-  const userQuery = "INSERT INTO users (name, email , password) VALUES ($1, $2, $3) RETURNING id";
-  const userValues = [name, email, hashPassword];
-  const result = await db.query(userQuery, userValues);
-  return result.rows[0].id;
-};
+interface User {
+  id: number;
+  name: string;
+  email: string;
+  password: string;
+}
+class UserController {
+  public createUser = async (db: VercelPoolClient, name: string, email: string, password: string): Promise<number> => {
+    try {
+      const hashPassword = hashSync(password, 10);
+      const userQuery = "INSERT INTO users (name, email , password) VALUES ($1, $2, $3) RETURNING id";
+      const userValues = [name, email, hashPassword];
+      const result = await db.query(userQuery, userValues);
+      return result.rows[0].id;
+    } catch (error) {
+      console.error("Error creating user:", error);
+      throw new DatabaseError("Failed to create user");
+    }
+  };
 
-export const createRole = async (db: any, userid: number, role: string) => {
-  const roleQuery = "INSERT INTO roles (userid, role) VALUES ($1, $2)";
-  const roleValues = [userid, role];
-  await db.query(roleQuery, roleValues);
-};
+  public createRole = async (db: VercelPoolClient, userid: number, role: string): Promise<void> => {
+    try {
+      const roleQuery = "INSERT INTO roles (userid, role) VALUES ($1, $2)";
+      const roleValues = [userid, role];
+      await db.query(roleQuery, roleValues);
+    } catch (error) {
+      console.error("Error creating user role:", error);
+      throw new DatabaseError("Failed to create user role");
+    }
+  };
 
-export const createCart = async (db: any, userid: number, obj: object) => {
-  const cartQuery = "INSERT INTO cart (userid, productids) VALUES ($1, $2)";
-  const cartValues = [userid, obj];
-  await db.query(cartQuery, cartValues);
-};
+  public createCart = async (db: VercelPoolClient, userid: number, obj: object): Promise<void> => {
+    try {
+      const cartQuery = "INSERT INTO cart (userid, productids) VALUES ($1, $2)";
+      const cartValues = [userid, obj];
+      await db.query(cartQuery, cartValues);
+    } catch (error) {
+      console.error("Error creating user cart:", error);
+      throw new DatabaseError("Failed to create user cart");
+    }
+  };
 
-export const validateUserCredentials = async (db: any, email: string, password: string) => {
-  const queryUser = `SELECT * FROM users WHERE email = $1`;
-  const valuesUser = [email];
-  const resultUser = await db.query(queryUser, valuesUser);
-  if (resultUser.rows[0].length === 0) return "Invalid Credentials";
-  const { id: currentId, password: hashedPassword } = resultUser.rows[0];
+  public validateUserCredentials = async (db: VercelPoolClient, email: string, password: string): Promise<number> => {
+    try {
+      const queryUser = `SELECT * FROM users WHERE email = $1`;
+      const resultUser = await db.query(queryUser, [email]);
 
-  const comparePassword = await compare(password, hashedPassword);
-  if (comparePassword === false) return "Invalid Credentials";
+      if (resultUser.rows.length === 0) throw new AuthError("Invalid Credentials");
+      const { id: currentId, password: hashedPassword } = resultUser.rows[0];
 
-  return currentId;
-};
+      const comparePassword = await compare(password, hashedPassword);
+      if (!comparePassword) throw new AuthError("Invalid Credentials");
 
-export const validateToken = async (db: any, userid: number) => {
-  const checkValidToken = `SELECT * FROM tokens WHERE userid = $1`;
-  const valuesCheckToken = [userid];
-  const resultCheckToken = await db.query(checkValidToken, valuesCheckToken);
+      return currentId;
+    } catch (error) {
+      console.error("Error validating user credentials:", error);
+      throw error;
+    }
+  };
 
-  if (resultCheckToken.rows.length > 0) {
-    return { token: resultCheckToken.rows[0].token };
-  }
-
-  return null;
-};
-
-export const generateToken = async (db: any, userid: number) => {
-  const queryRole = `SELECT * FROM roles WHERE userid = $1`;
-  const resultRole = (await db.query(queryRole, [userid])).rows[0];
-
-  const jwt = sign({ id: userid, role: resultRole.role }, String(process.env.JWT_KEY));
-  const queryToken = `INSERT INTO tokens (userid, token) VALUES ($1, $2) RETURNING token`;
-  const valuesToken = [userid, jwt];
-  const resultToken = await db.query(queryToken, valuesToken);
-  return resultToken.rows[0].token;
-};
-
-export const findUserById = async (db: any, userid: number) => {
-  const queryUser = `SELECT * FROM users WHERE id = $1`;
-  const valuesUser = [userid];
-  const resultUser = await db.query(queryUser, valuesUser);
-  return resultUser.rows[0];
-};
-
-export const deleteUserToken = async (db: any, userid: number) => {
-  const queryToken = `DELETE FROM tokens WHERE userid = $1`;
-  const valueToken = [userid];
-  await db.query(queryToken, valueToken);
-};
+  public findUserById = async (db: VercelPoolClient, userid: number): Promise<User> => {
+    try {
+      const queryUser = `SELECT * FROM users WHERE id = $1`;
+      const resultUser = await db.query(queryUser, [userid]);
+      return resultUser.rows[0];
+    } catch (error) {
+      console.error("Error validating user id:", error);
+      throw error;
+    }
+  };
+}
+export default new UserController();

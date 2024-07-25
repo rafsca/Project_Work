@@ -16,9 +16,9 @@
 
 ### Fix auth
 
-- Clean code ⚠️
-- Gestione errori ⚠️
-- Controller user ✅ controller token ⚠️
+- Gestione errori ✅
+- Controller user ✅
+- Controller token ✅
 
 ## API per la gestione dei prodotti - Peppe
 
@@ -36,7 +36,6 @@
 
 ### Fix products
 
-- Clean code ⚠️
 - Gestione errori ⚠️
 - Controller products ⚠️
 
@@ -52,7 +51,6 @@
 
 ### Fix cart
 
-- Clean code ⚠️
 - Gestione errori ⚠️
 
 ## API degli Ordini - Giuseppe attore
@@ -79,6 +77,5 @@
 ### Fix order
 
 - Code refactoring ⚠️
-- Clean code ⚠️
 - Gestione errori ⚠️
 - Order controller ⚠️

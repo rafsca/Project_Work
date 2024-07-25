@@ -55,6 +55,8 @@ routerProducts.post("/", async (req: Request, res: Response) => {
 routerProducts.patch("/:id", async (req: Request, res: Response) => {
   const token = req.headers.authorization;
   const { title, price, category, description } = req.body;
+  const { id } = req.params;
+
   if (!token) return res.status(404).json({ error: "Missing Token" });
 
   try {
@@ -69,10 +71,11 @@ routerProducts.patch("/:id", async (req: Request, res: Response) => {
     const {role} = resultRoles.rows[0];
     if(role !== "admin") return res.status(401).json({error: "You have to be admin"});
     
-    const queryProduct = `UPDATE tabella 
+    const queryProduct = `UPDATE products
         SET title = $1, price = $2, category = $3, description = $4
+        WHERE id=$5
         RETURNING *;`;
-    const valuesProduct = [title, price, category, description];
+    const valuesProduct = [title, price, category, description, id];
     await db.query(queryProduct, valuesProduct);
 
     db.release();
@@ -83,6 +86,34 @@ routerProducts.patch("/:id", async (req: Request, res: Response) => {
 });
 
 // Delete ❌
-routerProducts.delete("/api/products/:id", async (req: Request, res: Response) => {
+routerProducts.delete("/:id", async (req: Request, res: Response) => {
   const token = req.headers.authorization;
+  const { id } = req.params;
+
+  if (!token) return res.status(404).json({ error: "Missing Token" });
+
+  try {
+    const db = await pool.connect();
+
+    const decode = verifyToken(token);
+    if(decode === null)return res.status(401).json({error: "Invalid token"});
+
+    const queryRoles= "SELECT * FROM roles WHERE userid= $1";
+    const valuesRoles = [decode.id];
+    const resultRoles = await db.query(queryRoles, valuesRoles);
+    const {role} = resultRoles.rows[0];
+    if(role !== "admin") return res.status(401).json({error: "You have to be admin"});
+    
+    const queryProduct = `
+          DELETE FROM products
+            WHERE id = $1
+    `;
+    const valuesProduct = [id];
+    await db.query(queryProduct, valuesProduct);
+
+    db.release();
+    return res.status(201).json({ message: "Product sucessfully deleted" });
+  } catch (error) {
+    handleErr(res, 500, error);
+  }
 });

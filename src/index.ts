@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import { handleErr } from "./utils/handleError";
 import { routerUser } from "./routers/users";
+import { routerCart } from "./routers/cart";
 import { sign, verify } from "jsonwebtoken";
 
 const app = express();
@@ -15,7 +16,7 @@ app.get("/", async function (req: Request, res: Response) {});
 
 app.use("/api/auth", routerUser);
 // app.use("/api/products", routerProducts);
-// app.use("/api/cart", routerCart);
+app.use("/api/cart", routerCart);
 
 app.listen(port, function () {
   console.log(`🚀 Server is running on ${baseURL}:${port}`);

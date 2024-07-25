@@ -119,7 +119,7 @@ routerUser.post("/login", async (req: Request, res: Response) => {
 // !🔒 Logout
 routerUser.delete("/logout", async (req: Request, res: Response) => {
   const token = req.headers.authorization;
-  if (!token) return res.status(401).json({ error: "Missing Token" });
+  if (!token) return res.status(404).json({ error: "Missing Token" });
 
   try {
     const db = await pool.connect();
@@ -146,7 +146,7 @@ routerUser.delete("/logout", async (req: Request, res: Response) => {
 // !🔒 Get User details
 routerUser.get("/user", async (req: Request, res: Response) => {
   const token = req.headers.authorization;
-  if (!token) return res.status(401).json({ error: "Missing Token" });
+  if (!token) return res.status(404).json({ error: "Missing Token" });
 
   try {
     const db = await pool.connect();

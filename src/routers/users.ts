@@ -2,9 +2,10 @@ import express, { Request, Response } from "express";
 import { handleErr } from "../utils/handleError";
 import { pool } from "../config/database";
 import { compare, hashSync } from "bcryptjs";
-import { sign } from "jsonwebtoken";
+import { decode, JwtPayload, sign } from "jsonwebtoken";
 import { isEmailWhitelisted } from "../utils/whitelist";
 import { verifyToken } from "../utils/token";
+import { authenticateJWT, CustomRequest } from "../middleware/authenticateJWT";
 import "dotenv/config";
 
 export const routerUser = express.Router();
@@ -117,21 +118,18 @@ routerUser.post("/login", async (req: Request, res: Response) => {
 });
 
 // !🔒 Logout
-routerUser.delete("/logout", async (req: Request, res: Response) => {
-  const token = req.headers.authorization;
-  if (!token) return res.status(401).json({ error: "Missing Token" });
-
+routerUser.delete("/logout", authenticateJWT, async (req: CustomRequest, res: Response) => {
   try {
     const db = await pool.connect();
-    const decode = verifyToken(token);
+    const user = req.user as { id: string };
+    const userId = user.id;
 
     const queryUser = `SELECT * FROM users WHERE id = $1`;
-    const valuesUser = [decode?.id];
+    const valuesUser = [userId];
     const resultUser = await db.query(queryUser, valuesUser);
 
     const { id: currentId } = resultUser.rows[0];
-    if (resultUser.rows[0].length === 0 || currentId !== decode?.id)
-      return res.status(404).json({ message: "Not found" });
+    if (resultUser.rows[0].length === 0 || currentId !== userId) return res.status(404).json({ message: "Not found" });
 
     const queryToken = `DELETE FROM tokens WHERE userid = $1`;
     const valueToken = [currentId];
@@ -143,23 +141,19 @@ routerUser.delete("/logout", async (req: Request, res: Response) => {
   }
 });
 
-// !🔒 Get User details
-routerUser.get("/user", async (req: Request, res: Response) => {
-  const token = req.headers.authorization;
-  if (!token) return res.status(401).json({ error: "Missing Token" });
-
+// *🔒 Get User details
+routerUser.get("/user", authenticateJWT, async (req: CustomRequest, res: Response) => {
   try {
     const db = await pool.connect();
-    const decode = verifyToken(token);
+    const user = req.user as { id: string };
+    const userId = user.id;
 
-    const queryUser = `SELECT users.id, users.name, users.email, roles.role FROM users INNER JOIN roles ON users.id = roles.userid WHERE users.id = $1 `;
-    const valuesUser = [decode?.id];
+    const queryUser = `SELECT users.id, users.name, users.email, roles.role FROM users INNER JOIN roles ON users.id = roles.userid WHERE users.id = $1`;
+    const valuesUser = [userId];
     const resultUser = await db.query(queryUser, valuesUser);
-    console.log(resultUser.rows[0]);
 
-    const { id: currentId, name, email, role } = resultUser.rows[0];
-    if (resultUser.rows[0].length === 0 || currentId !== decode?.id)
-      return res.status(404).json({ message: "Not found" });
+    if (resultUser.rows.length === 0) return res.status(404).json({ message: "Not found" });
+    const { name, email, role } = resultUser.rows[0];
 
     db.release();
     res.status(200).json({ details: { name, email, role } });

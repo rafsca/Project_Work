@@ -1,6 +1,7 @@
 import { JwtPayload, sign, verify } from "jsonwebtoken";
 import "dotenv/config";
 
+// ! ❌ Da rimuovere , ho aggiunto il middleware src/middleware/jwt
 export const verifyToken = (token: string) => {
   try {
     const decode = verify(token, String(process.env.JWT_KEY));

@@ -1,11 +1,19 @@
 import express, { Request, Response } from "express";
 import { handleErr } from "../utils/handleError";
 import { pool } from "../config/database";
-import { compare, hashSync } from "bcryptjs";
-import { sign } from "jsonwebtoken";
 import { isEmailWhitelisted } from "../utils/whitelist";
-import { verifyToken } from "../utils/token";
+import { authenticateJWT, CustomRequest } from "../middleware/authenticateJWT";
 import "dotenv/config";
+import {
+  createUser,
+  createRole,
+  createCart,
+  validateUserCredentials,
+  validateToken,
+  generateToken,
+  findUserById,
+  deleteUserToken,
+} from "../controllers/usersController";
 
 export const routerUser = express.Router();
 
@@ -13,31 +21,19 @@ export const routerUser = express.Router();
 routerUser.post("/register", async (req: Request, res: Response) => {
   const { name, email, password } = req.body;
 
+  let db;
   try {
-    const db = await pool.connect();
+    db = await pool.connect();
 
-    // User
-    const hashPassword = hashSync(password, 10);
-    const userQuery = "INSERT INTO users (name, email , password) VALUES ($1, $2, $3) RETURNING id";
-    const userValues = [name, email, hashPassword];
-    const result = await db.query(userQuery, userValues);
-    const { id: userId } = result.rows[0];
-
-    // Role user
-    const roleQuery = "INSERT INTO roles (userid, role) VALUES ($1, $2)";
-    const roleValues = [userId, "generic"];
-    await db.query(roleQuery, roleValues);
-
-    // Cart user
-    const cartQuery = "INSERT INTO cart (userid, productids) VALUES ($1, $2)";
-    const cartValues = [userId, {}];
-    await db.query(cartQuery, cartValues);
-
-    db.release();
+    const newUser = await createUser(db, name, email, password);
+    await createRole(db, newUser, "generic");
+    await createCart(db, newUser, {});
 
     return res.status(201).json({ message: "User successfully created" });
   } catch (error) {
     handleErr(res, 500, error);
+  } finally {
+    db?.release();
   }
 });
 
@@ -46,124 +42,79 @@ routerUser.post("/admin/register", async (req: Request, res: Response) => {
   const { name, email, password } = req.body;
 
   if (!isEmailWhitelisted(email)) return res.status(403).send("You do not have permission to register as an admin");
+  let db;
 
   try {
-    const db = await pool.connect();
+    db = await pool.connect();
 
-    // User
-    const hashPassword = hashSync(password, Number(process.env.SALT_GENERIC));
-    const userQuery = "INSERT INTO users (name, email , password) VALUES ($1, $2, $3) RETURNING id";
-    const userValues = [name, email, hashPassword];
-    const result = await db.query(userQuery, userValues);
-    const { id: userId } = result.rows[0];
-
-    // Role admin user
-    const roleQuery = "INSERT INTO roles (userid, role) VALUES ($1, $2)";
-    const roleValues = [userId, "admin"];
-    await db.query(roleQuery, roleValues);
-
-    // Cart user
-    const cartQuery = "INSERT INTO cart (userid, productids) VALUES ($1, $2)";
-    const cartValues = [userId, {}];
-    await db.query(cartQuery, cartValues);
-
-    db.release();
+    const newUser = await createUser(db, name, email, password);
+    await createRole(db, newUser, "admin");
+    await createCart(db, newUser, {});
 
     return res.status(201).json({ message: "User successfully created" });
   } catch (error) {
     handleErr(res, 500, error);
+  } finally {
+    db?.release();
   }
 });
 
-// ?🔓 Login
+// *🔓 Login
 routerUser.post("/login", async (req: Request, res: Response) => {
   const { email, password } = req.body;
-
+  let db;
   try {
-    const db = await pool.connect();
+    db = await pool.connect();
 
-    // Login
-    const queryUser = `SELECT * FROM users WHERE email = $1`;
-    const valuesUser = [email];
-    const resultUser = await db.query(queryUser, valuesUser);
-    const { id: currentId, name: currentName, email: currentEmail, password: hashedPassword } = resultUser.rows[0];
+    const validateUser = await validateUserCredentials(db, email, password);
 
-    // Compare hash password
-    const comparePassword = await compare(password, hashedPassword);
-    if (comparePassword === false) return res.status(401).json({ error: "Invalid Password" });
+    const checkToken = await validateToken(db, validateUser);
+    if (checkToken) return res.status(200).json(checkToken);
 
-    // Check valid token
-    const checkValidToken = `SELECT * FROM tokens WHERE userid = $1`;
-    const valuesCheckToken = [currentId];
-    const resultCheckToken = await db.query(checkValidToken, valuesCheckToken);
-
-    if (resultCheckToken.rows.length > 0) {
-      return res.status(200).json({ token: resultCheckToken.rows[0].token });
-    }
-
-    // Create new token
-    const jwt = sign({ id: currentId, name: currentName, email: currentEmail }, String(process.env.JWT_KEY));
-    const queryToken = `INSERT INTO tokens (userid, token) VALUES ($1, $2) RETURNING token`;
-    const valuesToken = [currentId, jwt];
-    const resultToken = await db.query(queryToken, valuesToken);
-    const newToken = resultToken.rows[0];
-
-    db.release();
-
-    return res.status(200).json(newToken);
+    const newToken = await generateToken(db, validateUser);
+    return res.status(200).json({ token: newToken });
   } catch (error) {
     handleErr(res, 500, error);
+  } finally {
+    db?.release();
   }
 });
 
-// !🔒 Logout
-routerUser.delete("/logout", async (req: Request, res: Response) => {
-  const token = req.headers.authorization;
-  if (!token) return res.status(404).json({ error: "Missing Token" });
-
+// *🔒 Logout
+routerUser.delete("/logout", authenticateJWT, async (req: CustomRequest, res: Response) => {
+  let db;
   try {
-    const db = await pool.connect();
-    const decode = verifyToken(token);
+    db = await pool.connect();
+    const user = req.user as { id: string };
+    const userId = user.id;
 
-    const queryUser = `SELECT * FROM users WHERE id = $1`;
-    const valuesUser = [decode?.id];
-    const resultUser = await db.query(queryUser, valuesUser);
+    const findUser = await findUserById(db, Number(userId));
+    if (!findUser || findUser.id !== userId) return res.status(404).json({ message: "Not found" });
 
-    const { id: currentId } = resultUser.rows[0];
-    if (resultUser.rows[0].length === 0 || currentId !== decode?.id)
-      return res.status(404).json({ message: "Not found" });
-
-    const queryToken = `DELETE FROM tokens WHERE userid = $1`;
-    const valueToken = [currentId];
-    await db.query(queryToken, valueToken);
-    db.release();
+    await deleteUserToken(db, findUser.id);
     return res.status(200).json({ message: "User logged out successfully" });
   } catch (error) {
     handleErr(res, 500, error);
+  } finally {
+    db?.release();
   }
 });
 
-// !🔒 Get User details
-routerUser.get("/user", async (req: Request, res: Response) => {
-  const token = req.headers.authorization;
-  if (!token) return res.status(404).json({ error: "Missing Token" });
-
+// *🔒 Get User details
+routerUser.get("/user", authenticateJWT, async (req: CustomRequest, res: Response) => {
+  let db;
   try {
-    const db = await pool.connect();
-    const decode = verifyToken(token);
+    db = await pool.connect();
+    const user = req.user as { id: string; role: string };
+    const userId = user.id;
 
-    const queryUser = `SELECT users.id, users.name, users.email, roles.role FROM users INNER JOIN roles ON users.id = roles.userid WHERE users.id = $1 `;
-    const valuesUser = [decode?.id];
-    const resultUser = await db.query(queryUser, valuesUser);
-    console.log(resultUser.rows[0]);
+    const findUser = await findUserById(db, Number(userId));
+    if (!findUser) return res.status(404).json({ message: "Not found" });
 
-    const { id: currentId, name, email, role } = resultUser.rows[0];
-    if (resultUser.rows[0].length === 0 || currentId !== decode?.id)
-      return res.status(404).json({ message: "Not found" });
-
-    db.release();
-    res.status(200).json({ details: { name, email, role } });
+    res.status(200).json({ details: { name: findUser.name, email: findUser.email, role: user.role } });
   } catch (error) {
     handleErr(res, 500, error);
+  } finally {
+    db?.release();
   }
 });
